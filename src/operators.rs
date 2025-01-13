@@ -98,7 +98,7 @@ pub fn swiglu(y: &mut Tensor<f32>, x: &Tensor<f32>) {
     // _y = _y.iter().zip(silu_x.iter()).map(|(s1, s2)| s1 * s2).collect();
 
 
-    todo!("实现 silu，这里给了一些前期准备工作的提示，你可以参考")
+    // todo!("实现 silu，这里给了一些前期准备工作的提示，你可以参考")
 }
 
 // C = beta * C + alpha * A @ B^T
