@@ -71,7 +71,58 @@ pub fn masked_softmax(y: &mut Tensor<f32>) {
 }
 
 pub fn rms_norm(y: &mut Tensor<f32>, x: &Tensor<f32>, w: &Tensor<f32>, epsilon: f32) {
-    todo!("实现 rms_norm，计算前做一些必要的检查会帮助你后续调试")
+    
+    // 确保x、y形状相等，w是长度为n的向量，x、y最后一维长度为n
+    assert!(y.shape() == x.shape());
+    assert!(w.shape().len() == 1);
+
+    let shape = x.shape();
+
+    if let Some(n) = shape.last(){
+        assert!(*n==w.size())
+    }
+    else {
+        panic!("empty!")
+    }
+
+    let n = shape.last().unwrap();
+
+    let mut _y = unsafe { y.data_mut() };
+    let _x = x.data();
+
+    let _w = w.data();
+
+    let mut  ny:Vec < Vec <f32> > = vec![];
+
+    for  xi in _x.chunks(*n){
+        let mut sum = xi.iter().fold(0.,|acc:f32,x|acc+x*x);
+
+        sum /= *n as f32;
+        sum += epsilon;
+        sum = sum.sqrt();
+
+        // let mut result:Vec<f32>= vec![];
+
+        // for (xij,wj) in xi.iter().zip(_w.iter()){
+        //     result.push(xij*wj/sum);
+        //     let val = xij*wj/sum;
+        //     // print!("{val} ");
+        // }
+        // print!("\n");
+
+        let result: Vec<f32> = xi.iter()
+            .zip(_w.iter())
+            .map(|(&xij, &wj)| xij * wj / sum)
+            .collect();
+        
+        ny.push(result);
+    }
+    let flat_slice: Vec<f32> = ny.iter().flat_map(|vec| vec.iter()).cloned().collect();
+
+    _y.copy_from_slice(&flat_slice);
+
+
+    // todo!("实现 rms_norm，计算前做一些必要的检查会帮助你后续调试")
 }
 
 // y = silu(x) * y
@@ -200,7 +251,7 @@ fn test_silu() {
 
 #[test]
 fn test_rms_norm() {
-    let mut y = Tensor::<f32>::new(vec![1., 2., 3., 4.], &vec![2, 2]);
+    let mut y   = Tensor::<f32>::new(vec![1., 2., 3., 4.], &vec![2, 2]);
     let x = Tensor::<f32>::new(vec![1., 2., 3., 4.], &vec![2, 2]);
     let w = Tensor::<f32>::new(vec![1., 2.], &vec![2]);
     rms_norm(&mut y, &x, &w, 1e-6);
