@@ -75,40 +75,32 @@ pub fn rms_norm(y: &mut Tensor<f32>, x: &Tensor<f32>, w: &Tensor<f32>, epsilon: 
     // 确保x、y形状相等，w是长度为n的向量，x、y最后一维长度为n
     assert!(y.shape() == x.shape());
     assert!(w.shape().len() == 1);
+    assert!(*x.shape().last().unwrap()==w.size());
 
-    let shape = x.shape();
+    // let shape = x.shape();
 
-    if let Some(n) = shape.last(){
-        assert!(*n==w.size())
-    }
-    else {
-        panic!("empty!")
-    }
+    // if let Some(n) = shape.last(){
+    //     assert!(*n==w.size())
+    // }
+    // else {
+    //     panic!("empty!")
+    // }
 
-    let n = shape.last().unwrap();
+    let n = x.shape().last().unwrap();
 
     let mut _y = unsafe { y.data_mut() };
     let _x = x.data();
-
     let _w = w.data();
 
     let mut  ny:Vec < Vec <f32> > = vec![];
 
     for  xi in _x.chunks(*n){
-        let mut sum = xi.iter().fold(0.,|acc:f32,x|acc+x*x);
+        // let mut sum = xi.iter().fold(0.,|acc:f32,x|acc+x*x);
 
+        let mut sum : f32 =  xi.iter().map(|x|x*x).sum();
         sum /= *n as f32;
         sum += epsilon;
         sum = sum.sqrt();
-
-        // let mut result:Vec<f32>= vec![];
-
-        // for (xij,wj) in xi.iter().zip(_w.iter()){
-        //     result.push(xij*wj/sum);
-        //     let val = xij*wj/sum;
-        //     // print!("{val} ");
-        // }
-        // print!("\n");
 
         let result: Vec<f32> = xi.iter()
             .zip(_w.iter())
@@ -154,8 +146,47 @@ pub fn swiglu(y: &mut Tensor<f32>, x: &Tensor<f32>) {
 
 // C = beta * C + alpha * A @ B^T
 // hint: You don't need to do an explicit transpose of B
+// 你可以默认输入输出都是二维矩阵，即 $`A`$ 形状为 $`m×k`$，$`B`$ 形状为 $`n×k`$，$`C`$ 形状为 $`m×n`$，
+// 可以不用考虑广播的情况。
 pub fn matmul_transb(c: &mut Tensor<f32>, beta: f32, a: &Tensor<f32>, b: &Tensor<f32>, alpha: f32) {
-    todo!("实现 matmul_transb，计算前做一些必要的检查会帮助你后续调试");
+    // A: m*k  B: n*k C:m*n
+    assert_eq!(a.shape()[1],b.shape()[1]);
+    assert_eq!(a.shape()[0],c.shape()[0]);
+    assert_eq!(b.shape()[0],c.shape()[1]);
+
+    let k = a.shape()[1];
+    let m = a.shape()[0];
+    let n = b.shape()[0];
+
+    for i in 0..a.size()/k{
+        for j in 0..b.size()/k{
+            // println!("{i} {j}");
+            let _a = a.data();
+            let _b = b.data();
+            // _a[i*k..][..i*k+k]
+
+            // _b[j*k..][..j*k+k]
+
+            let sum :f32= _a[i*k..][..k].iter()
+            .zip(_b[j*k..][..k].iter()).map(|(a,b)| a*b).sum();
+
+            unsafe{
+                let _c = c.data_mut();
+
+                _c[i*n+j] = beta*(_c[i*n+j]) + alpha*sum;
+
+            }
+        }
+    }
+    
+    //  1 2 3
+    //  4 5 6
+    //
+    // 1 2 3
+    // 4 5 6
+    // 7 8 9
+
+    // todo!("实现 matmul_transb，计算前做一些必要的检查会帮助你后续调试");
 }
 
 // Dot product of two tensors (treated as vectors)
