@@ -167,7 +167,21 @@ fn mlp(
     rms_w: &Tensor<f32>,
     eps: f32,
 ) {
-    todo!("Implement mlp");
+    // todo!("Implement mlp");
+    let mut tmp = vec![];
+    for i in 0..residual.shape()[residual.shape().len()-1]{
+        tmp.push(1.);
+    }
+    let _tmp_w = Tensor::new(residual.data().to_vec(),residual.shape());
+    // let r2:Tensor<f32> = Tensor::default(residual.shape()); &_tmp_w,
+    OP::rms_norm(hidden_states,residual,rms_w,eps);
+    OP::matmul_transb(gate,0.,hidden_states,w_gate,1.);
+    OP::matmul_transb(up,0.,hidden_states,w_up,1.);
+    // let act = up.clone();
+    OP::swiglu(up,gate);
+    // let output=residual.clone();
+
+    OP::matmul_transb(residual,1.,up,w_down,1.);
 }
 
 #[test]
