@@ -32,6 +32,7 @@ impl Llama<f32> {
         let safetensor = SafeTensors::deserialize(&model_file).unwrap();
         let params = LLamaParams::from_safetensors(&safetensor, &config);
 
+        // println!("{safetensor:?}");
         Self {
             vocab: config.vocab_size,
             n_layers: config.num_hidden_layers,
@@ -168,11 +169,11 @@ fn mlp(
     eps: f32,
 ) {
     // todo!("Implement mlp");
-    let mut tmp = vec![];
-    for i in 0..residual.shape()[residual.shape().len()-1]{
-        tmp.push(1.);
-    }
-    let _tmp_w = Tensor::new(residual.data().to_vec(),residual.shape());
+    // let mut tmp = vec![];
+    // for i in 0..residual.shape()[residual.shape().len()-1]{
+    //     tmp.push(1.);
+    // }
+    // let _tmp_w = Tensor::new(residual.data().to_vec(),residual.shape());
     // let r2:Tensor<f32> = Tensor::default(residual.shape()); &_tmp_w,
     OP::rms_norm(hidden_states,residual,rms_w,eps);
     OP::matmul_transb(gate,0.,hidden_states,w_gate,1.);
@@ -239,6 +240,7 @@ pub fn test_load_safetensors() {
 
     assert!(float_eq(&model.params.embedding_table.data()[50], &0.14453125, 1e-6));
     assert_eq!(model.params.lm_head.data()[10], model.params.embedding_table.data()[10]);
+    println!("{}",model.params.rms_att_w[0].data()[10]);
     assert!(float_eq(&model.params.rms_att_w[0].data()[10], &0.18652344, 1e-6));
     assert!(float_eq(&model.params.rms_ffn_w[1].data()[10], &0.32421875, 1e-6));
     assert!(float_eq(&model.params.rms_out_w.data()[100], &0.73046875, 1e-6));
@@ -249,5 +251,38 @@ pub fn test_load_safetensors() {
     assert!(float_eq(&model.params.wk[1].data()[100], &-0.21386719, 1e-6));
     assert!(float_eq(&model.params.wv[0].data()[100], &0.041015625, 1e-6));
     assert!(float_eq(&model.params.wo[0].data()[100], &0.01965332, 1e-6));
+
+}
+
+
+
+#[test]
+pub fn test_load() {
+    use std::path::PathBuf;
+    use std::io::{Write, BufWriter};
+    use crate::tensor::float_eq;
+    let project_dir = env!("CARGO_MANIFEST_DIR");
+    let model_dir = PathBuf::from(project_dir).join("models").join("story");
+    // let model = Llama::from_safetensors(model_dir);
+    let model_file = std::fs::read(&model_dir.join("model.safetensors")).unwrap();
+    let safetensor = SafeTensors::deserialize(&model_file).unwrap();
+
+      let parameter_type = std::any::type_name::<SafeTensors>();
+      println!("参数类型: {}", parameter_type);
+  
+      let output_path = model_dir.join("output.txt");
+      let file = File::create(&output_path).unwrap();
+      let mut writer = BufWriter::new(file);
+  
+      writeln!(writer, "参数类型: {}", parameter_type);
+      writeln!(writer, "包含的张量数量: {}", safetensor.len());
+  
+      for (name, tensor) in safetensor.tensors() {
+          writeln!(writer, "张量名称: {}", name);
+          writeln!(writer, "张量数据类型: {:?}", tensor.dtype());
+          writeln!(writer, "张量shape : {:?}", tensor.shape());
+      }
+  
+      println!("信息已成功写入到文件: {:?}", output_path);
 
 }

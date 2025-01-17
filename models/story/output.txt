@@ -1,0 +1,62 @@
+参数类型: safetensors::tensor::SafeTensors
+包含的张量数量: 20
+张量名称: model.layers.0.self_attn.q_proj.weight
+张量数据类型: F32
+张量shape : [128, 128]
+张量名称: model.layers.1.mlp.down_proj.weight
+张量数据类型: F32
+张量shape : [128, 384]
+张量名称: model.layers.0.mlp.down_proj.weight
+张量数据类型: F32
+张量shape : [128, 384]
+张量名称: model.layers.0.mlp.gate_proj.weight
+张量数据类型: F32
+张量shape : [384, 128]
+张量名称: model.layers.0.post_attention_layernorm.weight
+张量数据类型: F32
+张量shape : [128]
+张量名称: model.layers.0.input_layernorm.weight
+张量数据类型: F32
+张量shape : [128]
+张量名称: model.layers.1.input_layernorm.weight
+张量数据类型: F32
+张量shape : [128]
+张量名称: model.layers.1.mlp.gate_proj.weight
+张量数据类型: F32
+张量shape : [384, 128]
+张量名称: model.layers.1.mlp.up_proj.weight
+张量数据类型: F32
+张量shape : [384, 128]
+张量名称: model.layers.1.self_attn.k_proj.weight
+张量数据类型: F32
+张量shape : [64, 128]
+张量名称: lm_head.weight
+张量数据类型: F32
+张量shape : [2048, 128]
+张量名称: model.layers.0.self_attn.v_proj.weight
+张量数据类型: F32
+张量shape : [64, 128]
+张量名称: model.layers.0.mlp.up_proj.weight
+张量数据类型: F32
+张量shape : [384, 128]
+张量名称: model.layers.1.post_attention_layernorm.weight
+张量数据类型: F32
+张量shape : [128]
+张量名称: model.layers.1.self_attn.v_proj.weight
+张量数据类型: F32
+张量shape : [64, 128]
+张量名称: model.layers.1.self_attn.o_proj.weight
+张量数据类型: F32
+张量shape : [128, 128]
+张量名称: model.layers.0.self_attn.o_proj.weight
+张量数据类型: F32
+张量shape : [128, 128]
+张量名称: model.norm.weight
+张量数据类型: F32
+张量shape : [128]
+张量名称: model.layers.0.self_attn.k_proj.weight
+张量数据类型: F32
+张量shape : [64, 128]
+张量名称: model.layers.1.self_attn.q_proj.weight
+张量数据类型: F32
+张量shape : [128, 128]
