@@ -103,6 +103,7 @@ impl Llama<f32> {
             let full_v = &mut cache.v_cache(layer, 0); // (total_seq, n_kv_h * dqkv)
 
             todo!("self_attention(...)");
+
             todo!("down_proj matmul and add residual");
 
             todo!("mlp(...)");
@@ -144,7 +145,7 @@ impl Llama<f32> {
 
 fn self_attention(
     hidden_states: &mut Tensor<f32>, // (seq, n_kv_h * n_groups * dqkv)
-    att_scores: &mut Tensor<f32>,    // (n_kv_h, n_groups, seq, total_seq)
+    att_scores: &mut Tensor<f32>,    // (n_kv_h, n_groups, seq, total_seq) 
     q: &Tensor<f32>,                 // (seq, n_kv_h * n_groups * dqkv)
     k: &Tensor<f32>,                 // (total_seq, n_kv_h * dqkv)
     v: &Tensor<f32>,                 // (total_seq, n_kv_h * dqkv)
@@ -154,8 +155,67 @@ fn self_attention(
     total_seq_len: usize,
     dqkv: usize,
 ) {
-    todo!("Implement self_attention");
-}
+    // todo!("Implement self_attention");
+    // (seq, n_kv_h * n_groups * dqkv) (total_seq, n_kv_h * dqkv).T
+    // (n_kv_h, n_groups, seq, total_seq)
+    // 手动进行索引和向量乘法
+
+    // score = Q @ K.T / sqrt(dim) 
+    // 对于每个独立的“头”都得到一个 (seq_len, total_seq_len) 的权重矩阵
+    // 对每个seq: (seq,n_kv_h * n_groups * dqkv) (n_kv_h * dqkv,total_seq)
+    // @ save to -> (seq,total_seq)
+
+
+    let _qdata = q.data();
+    let _kdata=k.data();
+    // i j k i*(n_kv_h * n_groups * dqkv)+j*(n_groups * dqkv) + k*(dqkv)
+
+    // i * (dqkv*total_seq) +j*total_seq
+    for qs in 0..seq_len{
+            for qj in 0..n_groups {
+                for kk in 0..total_seq_len{  
+                    for i in 0..n_kv_h{
+                        let mut sum:f32 = 0.;
+                        for k in 0..dqkv{
+                            let _qval = _qdata[qs*(n_kv_h * n_groups * dqkv)+i* (n_groups * dqkv)+qj*dqkv+k];//[..total_seq_len]// i *
+                            let _kval =  _kdata[i * (dqkv*total_seq_len)+k*total_seq_len+kk];
+                            sum += _qval*_kval;
+                        }
+                        unsafe {
+                           // let _scoredata = ;
+                            att_scores.data_mut()[i*(n_groups*seq_len*total_seq_len)+qj*(seq_len*total_seq_len)+qs*total_seq_len+kk] = sum/(dqkv as f32).sqrt();
+                        }
+                    }
+                }
+            }
+    }
+
+    // attn = softmax(score)
+    // 对于每个独立的“头”都得到一个 (seq_len, total_seq_len) 的权重矩阵
+    for qj in 0..n_groups {
+        for i in 0..n_kv_h{      
+            let mut _t = Tensor::new(att_scores.data()[i*(n_groups*seq_len*total_seq_len)+qj*(seq_len*total_seq_len)..][..seq_len*total_seq_len].to_vec(), &vec![seq_len,total_seq_len]);
+            OP::masked_softmax(&mut _t);     
+            let dst = & mut unsafe{att_scores.data_mut()}
+            [i*(n_groups*seq_len*total_seq_len)+qj*(seq_len*total_seq_len)..]
+            [..seq_len*total_seq_len];
+            dst.copy_from_slice(_t.data());
+        }
+    }
+
+    // // attn = softmax(score)
+    // OP::masked_softmax(att_scores);
+    
+    //attn_V = attn @ V   (n_kv_h, n_groups, seq, total_seq)  v:(total_seq, n_kv_h * dqkv)
+         // -> (seq_len,n_heads * head_size -> n_kv_h * n_groups * dqkv)
+    // out = attn_V @ O_weight.T     len,x    wo:(hidden_size, n_heads * head_size)
+    // residual = out + residual seq_len,hidden_size
+
+    // 
+
+    }
+
+
 
 fn mlp(
     residual: &mut Tensor<f32>,
