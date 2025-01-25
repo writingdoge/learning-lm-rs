@@ -74,7 +74,11 @@ impl Llama<f32> {
         // Embedding lookup
         OP::gather(&mut residual, input, &self.params.embedding_table);
 
+        println!("residual {:?}",residual.data()[0]);
+        println!("{}",self.n_layers);
         for layer in 0..self.n_layers {
+            println!("{} ",layer);
+            println!("residual {:?}",residual.data()[0]);
             OP::rms_norm(
                 &mut hidden_states,
                 &residual,
@@ -103,6 +107,7 @@ impl Llama<f32> {
             let full_v = &mut cache.v_cache(layer, 0); // (total_seq, n_kv_h * dqkv)
 
             //todo!("self_attention(...)");
+            println!("q {:?}",q.data()[0]);
 
             //
             self_attention(& mut hidden_states,& mut att_scores,
@@ -118,9 +123,10 @@ impl Llama<f32> {
             // C = beta * C + alpha * A @ B^T
             // residual = out + residual
             let wo = & self.params.wo[layer];
-            OP::matmul_transb(&mut residual, 0., & hidden_states,wo , 1.);
+            OP::matmul_transb(&mut residual, 1., & hidden_states,wo , 1.);
 
-
+            // println!("{:?}",residual.shape());
+            println!("after self-attn : {:?}",residual.data()[0]);
            // todo!("mlp(...)");
            mlp(&mut residual,&mut hidden_states,
             &mut gate_buf,&mut up_buf,&self.params.w_up[layer],
@@ -128,11 +134,12 @@ impl Llama<f32> {
     &self.params.w_gate[layer],&self.params.rms_ffn_w[layer],self.eps);
         }
 
+        println!("yeah everything else is OK");
         // No matter what seq_len, the output is always a 1D vector of length vocab,
         // which contains the probabilities for the next token.
         let mut logits = Tensor::<f32>::default(&vec![1, self.vocab]);
-        let mut hidden_states = hidden_states.slice((seq_len - 1) * self.d, &vec![1, self.d]);
-        let residual = residual.slice((seq_len - 1) * self.d, &vec![self.d]);
+        let mut hidden_states = hidden_states.slice((seq_len - 1) * self.d, &vec![1,self.d]);
+        let residual = residual.slice((seq_len - 1) * self.d, &vec![1,self.d]);
 
         OP::rms_norm(
             &mut hidden_states,
@@ -143,7 +150,7 @@ impl Llama<f32> {
 
         OP::matmul_transb(&mut logits, 0., &hidden_states, &self.params.lm_head, 1.0);
 
-        logits
+        logits // 概率分布
     }
 
     pub fn generate(
@@ -156,8 +163,18 @@ impl Llama<f32> {
     ) -> Vec<u32>{
         let mut result = Vec::<u32>::new();
         
-        todo!("实现文本生成");
-        
+        //todo!("实现文本生成");
+        let input_tensor = Tensor::new(token_ids.to_vec(),&vec![token_ids.len()]);
+        println!("{:?}",input_tensor.data());
+        let mut kv = self.new_cache();
+        let res = self.forward(&input_tensor,&mut kv);
+        // OP::masked_softmax(y);
+       // todo!("选择合适的token");
+
+       // forward()
+        println!("{:?}",res.data()[0]);
+        // result.append(&mut res.data().to_vec());
+
         result
     }
 }
@@ -174,7 +191,6 @@ fn self_attention(
     total_seq_len: usize,
     dqkv: usize,
 ) {
-    // todo!("Implement self_attention");
     // (seq, n_kv_h * n_groups * dqkv) (total_seq, n_kv_h * dqkv).T
     // (n_kv_h, n_groups, seq, total_seq)
     // 手动进行索引和向量乘法
@@ -188,6 +204,9 @@ fn self_attention(
     let _qdata = q.data();
     let _kdata=k.data();
     // i j k i*(n_kv_h * n_groups * dqkv)+j*(n_groups * dqkv) + k*(dqkv)
+
+    // (seq, n_kv_h * n_groups * dqkv)
+    // (total_seq, n_kv_h * dqkv)
 
     // i * (dqkv*total_seq) +j*total_seq  (total_seq, n_kv_h * dqkv)
     for i_seq_len in 0..seq_len{
@@ -218,7 +237,7 @@ fn self_attention(
             let mut _t = Tensor::new(att_scores.data()[i_n_kv_h*(n_groups*seq_len*total_seq_len)+i_n_groups*(seq_len*total_seq_len)..][..seq_len*total_seq_len].to_vec(), &vec![seq_len,total_seq_len]);
             OP::masked_softmax(&mut _t);     
             let dst = & mut unsafe{att_scores.data_mut()}
-            [i_n_groups*(n_groups*seq_len*total_seq_len)+i_n_kv_h*(seq_len*total_seq_len)..]
+            [i_n_kv_h*(n_groups*seq_len*total_seq_len)+i_n_groups*(seq_len*total_seq_len)..]
             [..seq_len*total_seq_len];
             dst.copy_from_slice(_t.data());
         }
