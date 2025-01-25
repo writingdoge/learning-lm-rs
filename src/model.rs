@@ -59,7 +59,7 @@ impl Llama<f32> {
         let past_seq_len = cache.len();
         cache.increment(seq_len);
         let total_seq_len = past_seq_len + seq_len;
-        let n_groups = self.n_q_h / self.n_kv_h;
+        let n_groups = self.n_q_h / self.n_kv_h; // 
 
         // Some pre-allocated buffers that will be reused
         let mut residual = Tensor::<f32>::default(&vec![seq_len, self.d]);
@@ -102,11 +102,30 @@ impl Llama<f32> {
             let full_k = &mut cache.k_cache(layer, 0); // (total_seq, n_kv_h * dqkv)
             let full_v = &mut cache.v_cache(layer, 0); // (total_seq, n_kv_h * dqkv)
 
-            todo!("self_attention(...)");
+            //todo!("self_attention(...)");
 
-            todo!("down_proj matmul and add residual");
+            //
+            self_attention(& mut hidden_states,& mut att_scores,
+            q,full_k,full_v,
+            self.n_kv_h,n_groups,seq_len,total_seq_len,self.dqkv);
 
-            todo!("mlp(...)");
+
+           // todo!("down_proj matmul and add residual");
+
+             // (seq, n_kv_h * n_groups * dqkv)
+            // out = attn_V @ O_weight.T     (q_head,len,dim)   wo:(hidden_size, n_heads * head_size)
+    
+            // C = beta * C + alpha * A @ B^T
+            // residual = out + residual
+            let wo = & self.params.wo[layer];
+            OP::matmul_transb(&mut residual, 0., & hidden_states,wo , 1.);
+
+
+           // todo!("mlp(...)");
+           mlp(&mut residual,&mut hidden_states,
+            &mut gate_buf,&mut up_buf,&self.params.w_up[layer],
+        &self.params.w_down[layer],
+    &self.params.w_gate[layer],&self.params.rms_ffn_w[layer],self.eps);
         }
 
         // No matter what seq_len, the output is always a 1D vector of length vocab,
@@ -170,48 +189,79 @@ fn self_attention(
     let _kdata=k.data();
     // i j k i*(n_kv_h * n_groups * dqkv)+j*(n_groups * dqkv) + k*(dqkv)
 
-    // i * (dqkv*total_seq) +j*total_seq
-    for qs in 0..seq_len{
-            for qj in 0..n_groups {
-                for kk in 0..total_seq_len{  
-                    for i in 0..n_kv_h{
+    // i * (dqkv*total_seq) +j*total_seq  (total_seq, n_kv_h * dqkv)
+    for i_seq_len in 0..seq_len{
+            for i_n_groups in 0..n_groups {
+                for i_tseq_len in 0..total_seq_len{  
+                    for i_n_kv_h in 0..n_kv_h{
                         let mut sum:f32 = 0.;
-                        for k in 0..dqkv{
-                            let _qval = _qdata[qs*(n_kv_h * n_groups * dqkv)+i* (n_groups * dqkv)+qj*dqkv+k];//[..total_seq_len]// i *
-                            let _kval =  _kdata[i * (dqkv*total_seq_len)+k*total_seq_len+kk];
+                        for i_dqkv in 0..dqkv{
+                            let _qval = _qdata[i_seq_len*(n_kv_h * n_groups * dqkv)+i_n_kv_h* (n_groups * dqkv)+i_n_groups*dqkv+i_dqkv];//[..total_seq_len]// i *
+                            let _kval =  _kdata[i_tseq_len * (n_kv_h * dqkv)+i_n_kv_h*dqkv+i_dqkv];
                             sum += _qval*_kval;
                         }
-                        unsafe {
+                        // 单元赋值写法1
+                        unsafe { // (n_kv_h, n_groups, seq, total_seq) 
                            // let _scoredata = ;
-                            att_scores.data_mut()[i*(n_groups*seq_len*total_seq_len)+qj*(seq_len*total_seq_len)+qs*total_seq_len+kk] = sum/(dqkv as f32).sqrt();
+                            att_scores.data_mut()[i_n_kv_h*(n_groups*seq_len*total_seq_len)+i_n_groups*(seq_len*total_seq_len)+i_seq_len*total_seq_len+i_tseq_len] = sum/(dqkv as f32).sqrt();
                         }
                     }
                 }
             }
     }
 
+    // (n_kv_h, n_groups, seq, total_seq) 
     // attn = softmax(score)
     // 对于每个独立的“头”都得到一个 (seq_len, total_seq_len) 的权重矩阵
-    for qj in 0..n_groups {
-        for i in 0..n_kv_h{      
-            let mut _t = Tensor::new(att_scores.data()[i*(n_groups*seq_len*total_seq_len)+qj*(seq_len*total_seq_len)..][..seq_len*total_seq_len].to_vec(), &vec![seq_len,total_seq_len]);
+    for i_n_groups in 0..n_groups {
+        for i_n_kv_h in 0..n_kv_h{      
+            let mut _t = Tensor::new(att_scores.data()[i_n_kv_h*(n_groups*seq_len*total_seq_len)+i_n_groups*(seq_len*total_seq_len)..][..seq_len*total_seq_len].to_vec(), &vec![seq_len,total_seq_len]);
             OP::masked_softmax(&mut _t);     
             let dst = & mut unsafe{att_scores.data_mut()}
-            [i*(n_groups*seq_len*total_seq_len)+qj*(seq_len*total_seq_len)..]
+            [i_n_groups*(n_groups*seq_len*total_seq_len)+i_n_kv_h*(seq_len*total_seq_len)..]
             [..seq_len*total_seq_len];
             dst.copy_from_slice(_t.data());
         }
     }
-
-    // // attn = softmax(score)
-    // OP::masked_softmax(att_scores);
     
-    //attn_V = attn @ V   (n_kv_h, n_groups, seq, total_seq)  v:(total_seq, n_kv_h * dqkv)
+    //attn_V = attn @ V   attn (n_kv_h, n_groups, seq, total_seq)  v:(total_seq, n_kv_h * dqkv)
          // -> (seq_len,n_heads * head_size -> n_kv_h * n_groups * dqkv)
-    // out = attn_V @ O_weight.T     len,x    wo:(hidden_size, n_heads * head_size)
-    // residual = out + residual seq_len,hidden_size
+         // qhead * len * dim
+    
+    // (seq, n_kv_h * n_groups * dqkv)
+    for i_n_kv_h in 0..n_kv_h{
+        for i_n_groups in 0..n_groups{
+            for i_seq in 0..seq_len{
+                for i_dqkv in 0..dqkv{
+                    let mut sum = 0. as f32;
+                    for i_t_seq in 0..total_seq_len{
+                        let _attn = att_scores.data()
+                        [i_n_kv_h*(n_groups * seq_len * total_seq_len)
+                        + i_n_groups*(seq_len*total_seq_len)
+                        + i_seq* total_seq_len
+                        + i_t_seq
+                        ];
+                        // (total_seq, n_kv_h * dqkv)
+                        let _v = v.data()
+                        [i_t_seq*(n_kv_h * dqkv)
+                        + i_n_kv_h*dqkv
+                        + i_dqkv
+                        ];
+                        sum += _attn*_v;
+                    }
+                    // (seq, n_kv_h * n_groups * dqkv)
+                    // 单元赋值写法2
+                    let _d =  & mut unsafe{hidden_states.data_mut()}
+                    [i_seq*(n_kv_h * n_groups * dqkv)
+                    + i_n_kv_h*(n_groups * dqkv)+i_n_groups*dqkv+i_dqkv];
+                    * _d = sum;
+                }
 
-    // 
+            }
+        }
+    }
+   
+   
 
     }
 
