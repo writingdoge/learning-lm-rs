@@ -71,7 +71,9 @@ pub fn masked_softmax(y: &mut Tensor<f32>) {
 }
 
 pub fn rms_norm(y: &mut Tensor<f32>, x: &Tensor<f32>, w: &Tensor<f32>, epsilon: f32) {
-    
+    // println!("rms_norm");
+    // println!("y: {:?} x: {:?} w: {:?}", y.shape(), x.shape(), w.shape());
+
     // 确保x、y形状相等，w是长度为n的向量，x、y最后一维长度为n
     assert!(y.shape() == x.shape());
     assert!(w.shape().len() == 1);

@@ -74,11 +74,11 @@ impl Llama<f32> {
         // Embedding lookup
         OP::gather(&mut residual, input, &self.params.embedding_table);
 
-        println!("residual {:?}",residual.data()[0]);
-        println!("{}",self.n_layers);
+        // println!("residual {:?}",residual.data()[0]);
+        // println!("{}",self.n_layers);
         for layer in 0..self.n_layers {
-            println!("{} ",layer);
-            println!("residual {:?}",residual.data()[0]);
+            // println!("{} ",layer);
+            // println!("residual {:?}",residual.data()[0]);
             OP::rms_norm(
                 &mut hidden_states,
                 &residual,
@@ -107,7 +107,7 @@ impl Llama<f32> {
             let full_v = &mut cache.v_cache(layer, 0); // (total_seq, n_kv_h * dqkv)
 
             //todo!("self_attention(...)");
-            println!("q {:?}",q.data()[0]);
+            // println!("q {:?}",q.data()[0]);
 
             //
             self_attention(& mut hidden_states,& mut att_scores,
@@ -126,7 +126,7 @@ impl Llama<f32> {
             OP::matmul_transb(&mut residual, 1., & hidden_states,wo , 1.);
 
             // println!("{:?}",residual.shape());
-            println!("after self-attn : {:?}",residual.data()[0]);
+            // println!("after self-attn : {:?}",residual.data()[0]);
            // todo!("mlp(...)");
            mlp(&mut residual,&mut hidden_states,
             &mut gate_buf,&mut up_buf,&self.params.w_up[layer],
@@ -134,19 +134,24 @@ impl Llama<f32> {
     &self.params.w_gate[layer],&self.params.rms_ffn_w[layer],self.eps);
         }
 
-        println!("yeah everything else is OK");
+        // println!("after mlp : {:?}",residual.data()[0]);
+
+        // println!("yeah everything else is OK");
         // No matter what seq_len, the output is always a 1D vector of length vocab,
         // which contains the probabilities for the next token.
         let mut logits = Tensor::<f32>::default(&vec![1, self.vocab]);
         let mut hidden_states = hidden_states.slice((seq_len - 1) * self.d, &vec![1,self.d]);
         let residual = residual.slice((seq_len - 1) * self.d, &vec![1,self.d]);
+        // seq_len, self.d
 
+        // println!("last norm: input {:?}",residual.data()[0]);
         OP::rms_norm(
             &mut hidden_states,
             &residual,
             &self.params.rms_out_w,
             self.eps,
         );
+        // println!("output {:?}",hidden_states.data()[0]);
 
         OP::matmul_transb(&mut logits, 0., &hidden_states, &self.params.lm_head, 1.0);
 
@@ -162,17 +167,32 @@ impl Llama<f32> {
         temperature: f32,
     ) -> Vec<u32>{
         let mut result = Vec::<u32>::new();
+        let mut kv = self.new_cache();
+
+        let mut inputs = token_ids.to_vec();
         
         //todo!("实现文本生成");
-        let input_tensor = Tensor::new(token_ids.to_vec(),&vec![token_ids.len()]);
-        println!("{:?}",input_tensor.data());
-        let mut kv = self.new_cache();
-        let res = self.forward(&input_tensor,&mut kv);
+        while result.len()  < max_len{
+            let input_tensor = Tensor::new(inputs.clone(),&vec![inputs.len()]);
+            let res = self.forward(&input_tensor,&mut kv);
+            // token_ids.append(next_token);
+            // token_ids.
+            let next_token = OP::random_sample(&res,top_p,top_k,temperature);
+            if next_token == self.eos_token_id{
+                break;
+            }
+            result.push(next_token);
+            inputs.clear();
+            inputs.push(next_token);
+
+            }
+       // }
+        // println!("{:?}",input_tensor.data());
         // OP::masked_softmax(y);
        // todo!("选择合适的token");
 
        // forward()
-        println!("{:?}",res.data()[0]);
+        // println!("{:?}",res.data()[0]);
         // result.append(&mut res.data().to_vec());
 
         result
