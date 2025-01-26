@@ -51,7 +51,7 @@ impl LLamaParams<f32> {
         // res
 
         LLamaParams {
-            embedding_table:get_tensor("lm_head.weight"),
+            embedding_table:get_tensor("model.embed_tokens.weight"), //  lm_head.weight
             rms_att_w:(0..config.num_hidden_layers)
             .map(|i| get_tensor(&format!("model.layers.{}.input_layernorm.weight", i)))
             .collect(),

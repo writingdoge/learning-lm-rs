@@ -165,18 +165,17 @@ impl Llama<f32> {
         top_p: f32,
         top_k: u32,
         temperature: f32,
+        kv: &mut KVCache<f32>,
     ) -> Vec<u32>{
         let mut result = Vec::<u32>::new();
-        let mut kv = self.new_cache();
+        // let mut kv = self.new_cache();
 
         let mut inputs = token_ids.to_vec();
         
         //todo!("实现文本生成");
         while result.len()  < max_len{
             let input_tensor = Tensor::new(inputs.clone(),&vec![inputs.len()]);
-            let res = self.forward(&input_tensor,&mut kv);
-            // token_ids.append(next_token);
-            // token_ids.
+            let res = self.forward(&input_tensor,kv);
             let next_token = OP::random_sample(&res,top_p,top_k,temperature);
             if next_token == self.eos_token_id{
                 break;
@@ -186,14 +185,6 @@ impl Llama<f32> {
             inputs.push(next_token);
 
             }
-       // }
-        // println!("{:?}",input_tensor.data());
-        // OP::masked_softmax(y);
-       // todo!("选择合适的token");
-
-       // forward()
-        // println!("{:?}",res.data()[0]);
-        // result.append(&mut res.data().to_vec());
 
         result
     }
@@ -409,9 +400,8 @@ pub fn test_load_safetensors() {
 pub fn test_load() {
     use std::path::PathBuf;
     use std::io::{Write, BufWriter};
-    use crate::tensor::float_eq;
     let project_dir = env!("CARGO_MANIFEST_DIR");
-    let model_dir = PathBuf::from(project_dir).join("models").join("story");
+    let model_dir = PathBuf::from(project_dir).join("models").join("chat");
     // let model = Llama::from_safetensors(model_dir);
     let model_file = std::fs::read(&model_dir.join("model.safetensors")).unwrap();
     let safetensor = SafeTensors::deserialize(&model_file).unwrap();
@@ -419,17 +409,17 @@ pub fn test_load() {
       let parameter_type = std::any::type_name::<SafeTensors>();
       println!("参数类型: {}", parameter_type);
   
-      let output_path = model_dir.join("output.txt");
+      let output_path = model_dir.join("output_chat.txt");
       let file = File::create(&output_path).unwrap();
       let mut writer = BufWriter::new(file);
   
-      writeln!(writer, "参数类型: {}", parameter_type);
-      writeln!(writer, "包含的张量数量: {}", safetensor.len());
+      writeln!(writer, "参数类型: {}", parameter_type).unwrap();
+      writeln!(writer, "包含的张量数量: {}", safetensor.len()).unwrap();
   
       for (name, tensor) in safetensor.tensors() {
-          writeln!(writer, "张量名称: {}", name);
-          writeln!(writer, "张量数据类型: {:?}", tensor.dtype());
-          writeln!(writer, "张量shape : {:?}", tensor.shape());
+          writeln!(writer, "张量名称: {}", name).unwrap();
+          writeln!(writer, "张量数据类型: {:?}", tensor.dtype()).unwrap();
+          writeln!(writer, "张量shape : {:?}", tensor.shape()).unwrap();
       }
   
       println!("信息已成功写入到文件: {:?}", output_path);
