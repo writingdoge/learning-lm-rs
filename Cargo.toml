@@ -13,3 +13,4 @@ tokio = { version = "1.0", features = ["full"] }
 axum = "0.7"
 tower-http = { version = "0.5", features = ["cors"] }
 tower = { version = "0.4", features = ["limit"] }
+dashmap = "5.0"  # 并发安全的哈希表 https://docs.rs/dashmap/latest/dashmap/struct.DashMap.html

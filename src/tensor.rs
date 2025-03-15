@@ -1,9 +1,22 @@
 use std::{slice, sync::Arc, vec};
+
 pub struct Tensor<T> {
     data: Arc<Box<[T]>>,
     shape: Vec<usize>,
     offset: usize,
     length: usize,
+}
+
+impl<T: Copy + Clone + Default> Clone for Tensor<T> {
+    fn clone(&self) -> Self {
+        let data: Vec<T> = self.data[self.offset..][..self.length].to_vec();
+        Tensor {
+            data: Arc::new(data.into_boxed_slice()),
+            shape: self.shape.clone(),
+            offset: 0,
+            length: self.length,
+        }
+    }
 }
 
 impl<T: Copy + Clone + Default> Tensor<T> {

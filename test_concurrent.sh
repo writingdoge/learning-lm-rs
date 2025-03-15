@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# 并发测试，未更新
 API_URL="http://localhost:3000/chat"
 
 CONCURRENT_REQUESTS=5

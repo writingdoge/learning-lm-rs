@@ -40,4 +40,25 @@ impl<T: Default + Copy> KVCache<T> {
     pub fn len(&self) -> usize {
         self.length
     }
+
+
+    pub fn create_snapshot(&self) -> Self {
+        KVCache {
+            k_cache: self.k_cache.clone(),
+            v_cache: self.v_cache.clone(),
+            length: self.length,
+            max_seq_len: self.max_seq_len,
+            dim: self.dim,
+        }
+    }
+
+    pub fn load_snapshot(&mut self, snapshot: &KVCache<T>) {
+        // 覆盖当前k_cache, v_cache, length
+        self.k_cache = snapshot.k_cache.clone();
+        self.v_cache = snapshot.v_cache.clone();
+        self.length = snapshot.length;
+        self.dim = snapshot.dim;
+        self.max_seq_len = snapshot.max_seq_len;
+    }
 }
+
