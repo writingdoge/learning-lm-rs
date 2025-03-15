@@ -4,8 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] } # 序列化/反序列化
 serde_json = "1.0"
 safetensors = "0.4.3"
 tokenizers = "0.19.1"
 rand = "0.8"
+
+eframe = "0.27"  # 依赖 egui
+tokio = { version = "1", features = ["full"] } # 处理异步请求
+
