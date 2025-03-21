@@ -30,7 +30,6 @@ use std::time::Instant;
 use model::Llama;
 use crate::kvcache::KVCache;
 
-// 这个类似接口
 pub trait LlamaTrait<T: FloatElement>: Send + Sync {
     fn generate(
         &self,

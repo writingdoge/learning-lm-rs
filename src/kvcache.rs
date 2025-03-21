@@ -53,7 +53,6 @@ impl<T: Default + Copy> KVCache<T> {
     }
 
     pub fn load_snapshot(&mut self, snapshot: &KVCache<T>) {
-        // 覆盖当前k_cache, v_cache, length
         self.k_cache = snapshot.k_cache.clone();
         self.v_cache = snapshot.v_cache.clone();
         self.length = snapshot.length;
