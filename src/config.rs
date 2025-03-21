@@ -17,6 +17,7 @@ pub(crate) struct LlamaConfigJson {
     pub torch_dtype: String,
     #[serde(default = "default_tie_word_embeddings")]
     pub tie_word_embeddings: bool,
+    // pub use_fp16: Option<bool>,
 }
 
 #[inline(always)]

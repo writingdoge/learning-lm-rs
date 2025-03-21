@@ -14,3 +14,10 @@ axum = "0.7"
 tower-http = { version = "0.5", features = ["cors"] }
 tower = { version = "0.4", features = ["limit"] }
 dashmap = "5.0"  # 并发安全的哈希表 https://docs.rs/dashmap/latest/dashmap/struct.DashMap.html
+half = "2.5"
+rayon = "1.10" # https://docs.rs/rayon/latest/rayon/
+
+[features]
+default = ["f32"]
+f32 = []
+f16 = []

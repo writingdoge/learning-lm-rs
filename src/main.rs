@@ -4,6 +4,7 @@ mod model;
 mod operators;
 mod params;
 mod tensor;
+mod benchmark;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,6 +15,10 @@ use axum::{
     Json,
     extract::State,
 };
+use operators::FloatElement;
+use params::FromF32Tensor;
+
+use half::f16;
 use serde::{Deserialize, Serialize};
 use tokenizers::Tokenizer;
 use tower_http::cors::{CorsLayer, Any};
@@ -21,20 +26,80 @@ use tower_http::cors::{CorsLayer, Any};
 use dashmap::DashMap; // 用DashMap
 use std::time::Instant;
 
-struct AppState {
-    llama: Arc<model::Llama<f32>>,
+
+use model::Llama;
+use crate::kvcache::KVCache;
+
+// 这个类似接口
+pub trait LlamaTrait<T: FloatElement>: Send + Sync {
+    fn generate(
+        &self,
+        input_ids: &[u32],
+        max_length: usize,
+        top_p: f32,
+        top_k: u32,
+        temperature: f32,
+        kv_cache: &mut KVCache<T>,
+    ) -> Vec<u32>;
+
+    fn new_cache(&self) -> KVCache<T>;
+}
+
+impl LlamaTrait<f32> for Llama<f32> {
+    fn generate(
+        &self,
+        input_ids: &[u32],
+        max_length: usize,
+        top_p: f32,
+        top_k: u32,
+        temperature: f32,
+        kv_cache: &mut kvcache::KVCache<f32>,
+    ) -> Vec<u32> {
+        self.generate(input_ids, max_length, top_p, top_k, temperature, kv_cache)
+    }
+
+    fn new_cache(&self) -> KVCache<f32> {
+        self.new_cache()
+    }
+}
+
+impl LlamaTrait<f16> for Llama<f16> {
+    fn generate(
+        &self,
+        input_ids: &[u32],
+        max_length: usize,
+        top_p: f32,
+        top_k: u32,
+        temperature: f32,
+        kv_cache: &mut KVCache<f16>,
+    ) -> Vec<u32> {
+        self.generate(input_ids, max_length, top_p, top_k, temperature, kv_cache)
+    }
+
+    fn new_cache(&self) -> KVCache<f16> {
+        self.new_cache()
+    }
+}
+
+
+
+struct AppState<T: FromF32Tensor + FloatElement> {
+    llama: Arc<dyn LlamaTrait<T>>,
     tokenizer: Arc<Tokenizer>,
-    // kv_cache: Arc<std::sync::Mutex<kvcache::KVCache<f32>>>,
-    session_kv_map: Arc<DashMap<String, kvcache::KVCache<f32>>>,
+    session_kv_map: Arc<DashMap<String, KVCache<T>>>,
     session_turn_map: Arc<DashMap<String, u32>>,
-    session_kvsnapshot_map: Arc<DashMap<String, Vec<kvcache::KVCache<f32>>>>,
+    session_kvsnapshot_map: Arc<DashMap<String, Vec<KVCache<T>>>>,
 }
 
 
 #[derive(Deserialize)]
 struct ChatRequest {
-    session_id: String, 
-    message: String, 
+    pub session_id: String,
+    pub message: String,
+    pub max_len: Option<usize>,
+    pub top_p: Option<f32>,
+    pub top_k: Option<u32>,
+    pub temperature: Option<f32>,
 }
 
 #[derive(Serialize)]
@@ -56,12 +121,47 @@ struct RollbackResponse {
     current_turn: u32,
 }
 
-fn init_state()->Arc<AppState>{
-    let project_dir = env!("CARGO_MANIFEST_DIR");
-    let model_dir = PathBuf::from(project_dir).join("models").join("chat");
-    // let llama = model::Llama::<f32>::from_safetensors(&model_dir);
+#[derive(Deserialize)]
+struct DeleteSessionRequest {
+    session_id: String,
+}
+
+#[derive(Serialize)]
+struct DeleteSessionResponse {
+    success: bool,
+    message: String,
+}
+
+#[cfg(feature = "f32")]
+fn init_state() -> Arc<AppState<f32>> {
+    let model_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("models").join("chat");
+
     let model_load_start = Instant::now();
-    let llama = Arc::new(model::Llama::<f32>::from_safetensors(&model_dir));
+    let llama: Arc<dyn LlamaTrait<f32>> = Arc::new(Llama::<f32>::from_safetensors(&model_dir));
+    let model_load_elapsed = model_load_start.elapsed();
+    println!("模型加载完成, 用时: {:.2?}", model_load_elapsed);
+
+    let tokenizer_load_start = Instant::now();
+    let tokenizer = Arc::new(Tokenizer::from_file(model_dir.join("tokenizer.json")).unwrap());
+    let tokenizer_load_elapsed = tokenizer_load_start.elapsed();
+    println!("tokenizer 加载完成, 用时: {:.2?}", tokenizer_load_elapsed);
+
+
+    Arc::new(AppState {
+        llama,
+        tokenizer,
+        session_kv_map: Arc::new(DashMap::new()),
+        session_turn_map: Arc::new(DashMap::new()),
+        session_kvsnapshot_map: Arc::new(DashMap::new()),
+    })
+}
+
+#[cfg(feature = "f16")]
+fn init_state() -> Arc<AppState<half::f16>> {
+    let model_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("models").join("chat");
+
+    let model_load_start = Instant::now();
+    let llama: Arc<dyn LlamaTrait<half::f16>> = Arc::new(Llama::<half::f16>::from_safetensors(&model_dir));
     let model_load_elapsed = model_load_start.elapsed();
     println!("模型加载完成, 用时: {:.2?}", model_load_elapsed);
 
@@ -71,55 +171,20 @@ fn init_state()->Arc<AppState>{
     let tokenizer_load_elapsed = tokenizer_load_start.elapsed();
     println!("tokenizer 加载完成, 用时: {:.2?}", tokenizer_load_elapsed);
 
-    let session_kv_map = Arc::new(DashMap::new());
-    let session_turn_map = Arc::new(DashMap::new());
-    let session_kvsnapshot_map = Arc::new(DashMap::new());
-
-
     Arc::new(AppState {
         llama,
         tokenizer,
-        session_kv_map,
-        session_turn_map,
-        session_kvsnapshot_map,
+        session_kv_map: Arc::new(DashMap::new()),
+        session_turn_map: Arc::new(DashMap::new()),
+        session_kvsnapshot_map: Arc::new(DashMap::new()),
     })
-
 }
 
-#[tokio::main]
-async fn main() {
 
-    let state = init_state();
-
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
-
-    let app = Router::new()
-        .route("/chat", post(chat_handler)) //对话
-        .route("/rollback", post(rollback_handler)) //回滚
-        .layer(cors)
-        .with_state(state);
-
-    println!("服务器启动在 http://0.0.0.0:3000");
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
-    axum::serve(
-        tokio::net::TcpListener::bind(addr)
-            .await
-            .unwrap(),
-        app.into_make_service(),
-    )
-    .await
-    .unwrap();
-   // roll_back();
-}
-
-async fn chat_handler(
-    State(state): State<Arc<AppState>>,
+async fn chat_handler<T: FloatElement + FromF32Tensor>(
+    State(state): State<Arc<AppState<T>>>,
     Json(request): Json<ChatRequest>,
 ) -> Json<ChatResponse> {
-
     let request_start = Instant::now();
     
     // 构建输入
@@ -148,28 +213,36 @@ async fn chat_handler(
     
     let binding = state.tokenizer.encode(input.as_str(), true).unwrap();
     let input_ids = binding.get_ids();
-    print!("session {}: {}",session_id, input.as_str());
+    print!("会话 {}: {}",session_id, input.as_str());
 
 
     let mut kv = state.session_kv_map
-    .entry(session_id.clone())
+        .entry(session_id.clone())
     .or_insert_with(|| state.llama.new_cache());
+
+    let max_len = request.max_len.unwrap_or(250);
+    let top_p = request.top_p.unwrap_or(0.8);
+    let top_k = request.top_k.unwrap_or(30);
+    let temperature = request.temperature.unwrap_or(1.0);
 
 
     let generation_start = Instant::now();
     
-    // 硬编码输入参数，需修改
+
     let output_ids = state.llama.generate(
         input_ids,
-        250,
-        0.8,
-        30,
-        1.,
+        max_len,
+        top_p,
+        top_k,
+        temperature,
         &mut kv,
     );
 
+    let token_num = output_ids.len();
+
     let generation_elapsed = generation_start.elapsed();
     println!("模型生成耗时: {:.2?}", generation_elapsed);
+    println!("sec per token: {:.2?}", generation_elapsed.as_secs_f64() / token_num as f64);
     
     let output = state.tokenizer.decode(&output_ids, true).unwrap();
     
@@ -181,14 +254,14 @@ async fn chat_handler(
     .entry(session_id.clone())
     .and_modify(|turn| { *turn += 1; })   
     .or_insert(1);                      
-    println!("Session {} is now at turn {}", session_id, *turn_count);
+    println!("会话 {} 目前在 turn {}", session_id, *turn_count);
 
     if *turn_count % 1 == 0 { // 控制存储 snapshot 的间隔
         let snapshot = kv.create_snapshot();
 
         snapshots.push(snapshot);
 
-        println!("Checkpoint created at turn: {}", *turn_count);
+        println!("创建快照 ：turn {}", *turn_count);
     }
 
     Json(ChatResponse {
@@ -197,13 +270,13 @@ async fn chat_handler(
 }
 
 // 回滚处理函数
-async fn rollback_handler(
-    State(state): State<Arc<AppState>>,
+async fn rollback_handler<T: FloatElement + FromF32Tensor>(
+    State(state): State<Arc<AppState<T>>>,
     Json(request): Json<RollbackRequest>,
 ) -> Json<RollbackResponse> {
     println!("ROLLBACK");
     let session_id = request.session_id.clone();
-    let target_turn = request.rollback_to_turn.unwrap_or(1); // 如果未提供，默认为 1
+    let target_turn = request.rollback_to_turn.unwrap_or(1); 
 
     match rollback_session(&state, &session_id, target_turn) {
         Ok(current_turn) => {
@@ -226,13 +299,17 @@ async fn rollback_handler(
 
 }
 
-fn rollback_session(state: &AppState, session_id: &str, target_turn: u32) -> Result<u32, (String,u32)> {
+fn rollback_session<T: FloatElement + FromF32Tensor>(
+    state: &AppState<T>,
+    session_id: &str,
+    target_turn: u32,
+) -> Result<u32, (String, u32)> {
 
-    println!("begin getting current_turn");
+    // println!("begin getting current_turn");
     let current_turn = state.session_turn_map.get(session_id)
         .ok_or_else(|| ("Session turn not found".to_string(),0))?
         .clone(); 
-    println!("OK getting current_turn");
+    // println!("OK getting current_turn");
 
     if target_turn <= 0 {
         return Err(("Failed: Illegal target turn".to_string(),current_turn));
@@ -278,118 +355,80 @@ fn rollback_session(state: &AppState, session_id: &str, target_turn: u32) -> Res
     assert_eq!(state.session_kvsnapshot_map.get(session_id).unwrap().len(), target_turn as usize, "Should have 2 snapshots after rollback");
     assert_eq!(state.session_kv_map.get(session_id).unwrap().value().len(), target_len, "KVCache length should be 25 after rollback to turn 2");
 
-    println!("Rollback successful: session {} rollback to turn {}", session_id, new_turn);
-    Ok((new_turn))
+    println!("会话 {} 回滚到 turn {}", session_id, new_turn);
+    Ok(new_turn)
 }
 
-
-// 续写部分
-// fn main() {
-//     let project_dir = env!("CARGO_MANIFEST_DIR");
-//     let model_dir = PathBuf::from(project_dir).join("models").join("story");
-//     let llama = model::Llama::<f32>::from_safetensors(&model_dir);
-//     let tokenizer = Tokenizer::from_file(model_dir.join("tokenizer.json")).unwrap();
-//     let input = "Once upon a time";
-//     let binding = tokenizer.encode(input, true).unwrap();
-//     let input_ids = binding.get_ids();
-//     print!("\n{}", input);
-//     let output_ids = llama.generate(
-//         input_ids,
-//         500,
-//         0.4,
-//         30,
-//         0.,
-//     );
-//     println!("{}", tokenizer.decode(&output_ids, true).unwrap());
-// }
-
-// #[test]
-// pub fn test_chat() {
-//     chat();
-// }
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::extract::State;
-    use axum::Json;
-    use std::sync::Arc;
-    use tokio;
-    use std::time::Instant;
-
-    #[tokio::test] // 异步测试
-    async fn roll_back() {
-        let state = init_state();
-
-        let session_id = "test-rollback-session".to_string();
-        let mut kv = state.llama.new_cache();
-        let mut snapshots = Vec::new();
-
-        println!("Creating snapshots for testing...");
-        state.session_turn_map.insert(session_id.clone(), 0);
-
-        println!("Simulating turn 1...");
-        kv.increment(10);
-        state.session_turn_map.alter(&session_id, |_, _| 1);
-        snapshots.push(kv.create_snapshot());
-
-        println!("Simulating turn 2...");
-        kv.increment(15);
-        state.session_turn_map.alter(&session_id, |_, turn| turn + 1);
-        snapshots.push(kv.create_snapshot());
-
-        println!("Simulating turn 3...");
-        kv.increment(20);
-        state.session_turn_map.alter(&session_id, |_, turn| turn + 1);
-        snapshots.push(kv.create_snapshot());
-
-        state.session_kv_map.insert(session_id.clone(), kv);
-        state.session_kvsnapshot_map.insert(session_id.clone(), snapshots);
-
-        println!("Setup complete. Starting rollback tests...");
-
-        println!("\nTest 1: Rollback to turn 2");
-        let rollback_request1 = RollbackRequest {
-            session_id: session_id.clone(),
-            rollback_to_turn: Some(2),
-        };
-        let response1 = rollback_handler(State(state.clone()), Json(rollback_request1)).await;
-        let response_body1 = response1.0;
-
-        assert!(response_body1.success, "Rollback to turn 2 should succeed");
-        assert_eq!(response_body1.current_turn, 2, "Current turn should be 2");
-
-        println!("\nTest 2: Rollback to non-existent turn (should fail)");
-        let rollback_request2 = RollbackRequest {
-            session_id: session_id.clone(),
-            rollback_to_turn: Some(10),
-        };
-        let response2 = rollback_handler(State(state.clone()), Json(rollback_request2)).await;
-        let response_body2 = response2.0;
-
-        assert!(!response_body2.success, "Rollback to turn 10 should fail");
-        assert_eq!(
-            response_body2.message,
-            "Rollback failed: Failed: Cannot rollback to future turn",
-            "Error message should indicate failure"
-        );
-        assert_eq!(
-            response_body2.current_turn, 2,
-            "Even if rollback fails, current_turn should remain unchanged"
-        );
-
-        println!("\nTest 3: Default rollback (to previous snapshot)");
-        let rollback_request3 = RollbackRequest {
-            session_id: session_id.clone(),
-            rollback_to_turn: None, // 默认回滚
-        };
-        let response3 = rollback_handler(State(state.clone()), Json(rollback_request3)).await;
-        let response_body3 = response3.0;
-
-        assert!(response_body3.success, "Default rollback should succeed");
-        assert_eq!(response_body3.current_turn, 1, "Current turn should rollback to previous snapshot");
-
-        println!("rollback tests OK");
+async fn delete_session_handler<T: FloatElement + FromF32Tensor>(
+    State(state): State<Arc<AppState<T>>>,
+    Json(request): Json<DeleteSessionRequest>,
+) -> Json<DeleteSessionResponse> {
+    let session_id = request.session_id;
+    
+    // 删除所有与该会话相关的数据
+    let kv_removed = state.session_kv_map.remove(&session_id).is_some();
+    let turn_removed = state.session_turn_map.remove(&session_id).is_some();
+    let snapshot_removed = state.session_kvsnapshot_map.remove(&session_id).is_some();
+    
+    if kv_removed || turn_removed || snapshot_removed {
+        println!("会话 {} 已成功删除", session_id);
+        Json(DeleteSessionResponse {
+            success: true,
+            message: format!("session {} is deleted", session_id),
+        })
+    } else {
+        println!("会话 {} 不存在", session_id);
+        Json(DeleteSessionResponse {
+            success: false,
+            message: format!("session {} doesn't exist", session_id),
+        })
     }
+}
+
+#[tokio::main]
+async fn main() {
+    let state = init_state();
+
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    let app = Router::new()
+        .route("/chat", post(chat_handler))
+        .route("/rollback", post(rollback_handler))
+        .route("/delete_session", post(delete_session_handler))
+        .layer(cors)
+        .with_state(state);
+
+    println!("服务器启动在 http://0.0.0.0:3000");
+    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    axum::serve(
+        tokio::net::TcpListener::bind(addr)
+            .await
+            .unwrap(),
+        app.into_make_service(),
+    )
+    .await
+    .unwrap();
+}
+
+#[test]
+fn test_init_state(){
+    let project_dir = env!("CARGO_MANIFEST_DIR");
+    let model_dir = PathBuf::from(project_dir).join("models").join("chat");
+
+    
+    let model_load_start = Instant::now();
+    let llama = Arc::new(model::Llama::<f32>::from_safetensors(&model_dir));
+    let model_load_elapsed = model_load_start.elapsed();
+    println!("模型加载完成, 用时: {:.2?}", model_load_elapsed);
+
+    // let tokenizer = Tokenizer::from_file(model_dir.join("tokenizer.json")).unwrap();
+    let tokenizer_load_start = Instant::now();
+    let tokenizer = Arc::new(Tokenizer::from_file(model_dir.join("tokenizer.json")).unwrap());
+    let tokenizer_load_elapsed = tokenizer_load_start.elapsed();
+    println!("tokenizer 加载完成, 用时: {:.2?}", tokenizer_load_elapsed);
+
+
 }
