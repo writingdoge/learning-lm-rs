@@ -112,7 +112,7 @@ struct RollbackRequest {
     rollback_to_turn: Option<u32>, // 可选
 }
 
-// 回滚响应结构
+
 #[derive(Serialize)]
 struct RollbackResponse {
     success: bool,
@@ -134,6 +134,7 @@ struct DeleteSessionResponse {
 #[cfg(feature = "f32")]
 fn init_state() -> Arc<AppState<f32>> {
     let model_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("models").join("chat");
+    println!("Model directory: {:?}", model_dir);
 
     let model_load_start = Instant::now();
     let llama: Arc<dyn LlamaTrait<f32>> = Arc::new(Llama::<f32>::from_safetensors(&model_dir));
@@ -268,7 +269,6 @@ async fn chat_handler<T: FloatElement + FromF32Tensor>(
     })
 }
 
-// 回滚处理函数
 async fn rollback_handler<T: FloatElement + FromF32Tensor>(
     State(state): State<Arc<AppState<T>>>,
     Json(request): Json<RollbackRequest>,
@@ -304,11 +304,9 @@ fn rollback_session<T: FloatElement + FromF32Tensor>(
     target_turn: u32,
 ) -> Result<u32, (String, u32)> {
 
-    // println!("begin getting current_turn");
     let current_turn = state.session_turn_map.get(session_id)
         .ok_or_else(|| ("Session turn not found".to_string(),0))?
         .clone(); 
-    // println!("OK getting current_turn");
 
     if target_turn <= 0 {
         return Err(("Failed: Illegal target turn".to_string(),current_turn));

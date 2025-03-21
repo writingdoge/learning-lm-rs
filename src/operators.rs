@@ -2,7 +2,6 @@ use crate::tensor::Tensor;
 use half::f16;
 use rayon::prelude::*;
 
-// 通用 Float 计算 trait，支持混合精度计算
 pub trait FloatElement: Copy + Clone + Default + Send + Sync {
     fn to_f32(self) -> f32;
     fn from_f32(val: f32) -> Self;
@@ -187,9 +186,6 @@ pub fn rms_norm<T: FloatElement>(y: &mut Tensor<f32>, x: &Tensor<f32>, w: &Tenso
     _y.copy_from_slice(&flat_slice);
 }
 
-
-
-// 多线程并行优化
 pub fn rms_norm_parallel<T: FloatElement>(y: &mut Tensor<f32>, x: &Tensor<f32>, w: &Tensor<T>, epsilon: f32) {
     assert_eq!(y.shape(), x.shape());
     assert_eq!(w.shape().len(), 1);
@@ -328,7 +324,7 @@ pub fn swiglu_parallel<T: FloatElement>(y: &mut Tensor<T>, x: &Tensor<T>) {
 // 你可以默认输入输出都是二维矩阵，即 $`A`$ 形状为 $`m×k`$，$`B`$ 形状为 $`n×k`$，$`C`$ 形状为 $`m×n`$，
 // 可以不用考虑广播的情况。
 
-// c,b是f16;b是f162种情况
+// c,b是f16;b是f16  2种情况
 pub fn matmul_transb<T: FloatElement, S: FloatElement,  R: FloatElement>(c: &mut Tensor<T>, beta: f32, a: &Tensor<R>, b: &Tensor<S>, alpha: f32) {
     // A: m*k  B: n*k C:m*n
     assert_eq!(a.shape()[1],b.shape()[1]);
